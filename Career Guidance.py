@@ -1,149 +1,539 @@
-import streamlit as st
+"import streamlit as st
 import pandas as pd
 from fpdf import FPDF
+import numpy as np
+import matplotlib.pyplot as plt
+from io import BytesIO
+import tempfile
 import os
 
-def calculate_scores(responses, questions):
-    score_categories = {
-        "STEM": 0, "Humanities": 0, "Business": 0, "Creative": 0,
-        "Specialist": 0, "Leadership": 0, "Creative_Role": 0, "Admin": 0,
-        "Technical": 0, "Generalist": 0
-    }
-    for q_num, ans in responses.items():
-        tags = questions[q_num]["options"][ans]
-        for tag in tags:
-            score_categories[tag] += 1
-    return score_categories
+st.set_page_config(page_title=""Career Guidance Test"", layout=""centered"")
 
-def generate_pdf_report(scores, academic_scores, student_name):
-    pdf = FPDF()
-    pdf.add_page()
-    pdf.set_font("Arial", size=12)
-
-    pdf.cell(200, 10, f"Career Guidance Report for {student_name}", ln=True, align='C')
-    pdf.ln(10)
-
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, "Top Career Inclinations:", ln=True)
-    top_domains = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:3]
-    for domain, score in top_domains:
-        pdf.set_font("Arial", size=11)
-        pdf.cell(200, 10, f"{domain}: {score}", ln=True)
-
-    pdf.ln(5)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, "Academic Scores Snapshot:", ln=True)
-    pdf.set_font("Arial", size=10)
-    for index, row in academic_scores.iterrows():
-        pdf.cell(200, 10,
-                 f"{row['Subject']}: Class 9 - {row['Class 9 (%)']}%, Class 10 - {row['Class 10 (%)']}%",
-                 ln=True)
-
-    major_minor = {
-        ("STEM", "Business"): ("Computer Science", "Business Analytics"),
-        ("Humanities", "Creative"): ("Psychology", "Media Studies"),
-        ("Creative", "Business"): ("Design", "Marketing"),
-    }
-    top_tags = tuple(sorted([d[0] for d in top_domains if d[0] in ["STEM", "Humanities", "Creative", "Business"]])[:2])
-    major, minor = major_minor.get(top_tags, ("General Studies", "Communication"))
-
-    pdf.ln(5)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, "Suggested Major & Minor:", ln=True)
-    pdf.set_font("Arial", size=11)
-    pdf.cell(200, 10, f"Major: {major}", ln=True)
-    pdf.cell(200, 10, f"Minor: {minor}", ln=True)
-
-    pdf.ln(5)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, "Top Global Universities:", ln=True)
-    universities = {
-        "Computer Science": ["University of Toronto", "University of Michigan", "NUS"],
-        "Psychology": ["UCL", "University of Amsterdam", "University of British Columbia"],
-        "Design": ["Parsons School of Design", "RMIT", "University of the Arts London"],
-        "General Studies": ["Arizona State University", "Monash University", "York University"]
-    }
-    for uni in universities.get(major, []):
-        pdf.set_font("Arial", size=10)
-        pdf.cell(200, 10, f"- {uni}", ln=True)
-
-    pdf.ln(5)
-    pdf.set_font("Arial", 'B', 12)
-    pdf.cell(200, 10, "Career Paths & Entry Roles:", ln=True)
-    if major == "Computer Science":
-        careers = ["Product Analyst at Google", "Data Analyst at Amazon", "Software Intern at Atlassian"]
-    elif major == "Psychology":
-        careers = ["Research Assistant at WHO", "Policy Analyst at UNDP", "Behavioural Analyst at Deloitte"]
-    elif major == "Design":
-        careers = ["UX Designer at Canva", "Visual Designer at Ogilvy", "Intern at IDEO"]
-    else:
-        careers = ["Content Creator", "Program Manager", "Marketing Intern"]
-
-    for job in careers:
-        pdf.set_font("Arial", size=10)
-        pdf.cell(200, 10, f"- {job}", ln=True)
-
-    pdf.ln(5)
-    pdf.set_font("Arial", 'I', 11)
-    pdf.multi_cell(0, 10, "You're on the path to a promising global career. Continue exploring your strengths and building real-world exposure. Your journey has just begun!")
-
-    file_path = f"/mnt/data/{student_name.replace(' ', '_')}_Career_Report.pdf"
-    pdf.output(file_path)
-    return file_path
-
-st.title("Class 9–10 Career Guidance Psychometric Test")
-student_name = st.text_input("Enter your name")
-
+# Define 60 psychometric questions (10 per dimension)
 questions = {
-    1: {"question": "How do you prefer to start your school projects?", "options": {"A": ["Admin"], "B": ["Creative"], "C": ["Specialist"], "D": ["Generalist"]}},
-    2: {"question": "When working in a group, what role do you usually take?", "options": {"A": ["Leadership"], "B": ["Specialist"], "C": ["Creative"], "D": ["Admin"]}},
-    3: {"question": "What motivates you to complete a task?", "options": {"A": ["Leadership"], "B": ["Specialist"], "C": ["Technical"], "D": ["Admin"]}},
-    4: {"question": "You’re given a topic to present. You would:", "options": {"A": ["Creative"], "B": ["Specialist"], "C": ["Admin"], "D": ["Generalist"]}},
-    5: {"question": "What frustrates you the most in a school setting?", "options": {"A": ["Admin"], "B": ["Creative"], "C": ["Specialist"], "D": ["Generalist"]}},
-    6: {"question": "You enjoy subjects that are:", "options": {"A": ["Technical"], "B": ["Creative"], "C": ["Admin"], "D": ["Specialist"]}},
-    7: {"question": "Which subject do you enjoy the most?", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    8: {"question": "How do you usually score in Math?", "options": {"A": ["STEM"], "B": ["STEM"], "C": ["STEM"], "D": ["STEM"]}},
-    9: {"question": "Which best describes your learning style?", "options": {"A": ["STEM"], "B": ["Creative"], "C": ["Humanities"], "D": ["Business"]}},
-    10: {"question": "Which activity do you enjoy the most in class?", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    11: {"question": "How would you prefer to be tested?", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    12: {"question": "What kind of homework do you usually do first?", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    13: {"question": "In your free time, you enjoy:", "options": {"A": ["STEM"], "B": ["Creative"], "C": ["Humanities"], "D": ["Business"]}},
-    14: {"question": "Which magazine would you pick up?", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    15: {"question": "You love school events where you can:", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    16: {"question": "What’s your idea of a fun weekend project?", "options": {"A": ["STEM"], "B": ["Creative"], "C": ["Humanities"], "D": ["Business"]}},
-    17: {"question": "You admire people who:", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    18: {"question": "What excites you the most?", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    19: {"question": "You prefer working:", "options": {"A": ["Specialist"], "B": ["Generalist"], "C": ["Admin"], "D": ["Leadership"]}},
-    20: {"question": "When meeting new people, you:", "options": {"A": ["Technical"], "B": ["Generalist"], "C": ["Leadership"], "D": ["Creative"]}},
-    21: {"question": "Your teachers describe you as:", "options": {"A": ["Specialist"], "B": ["Leadership"], "C": ["Creative"], "D": ["Admin"]}},
-    22: {"question": "What’s your preferred communication style?", "options": {"A": ["Admin"], "B": ["Creative"], "C": ["Leadership"], "D": ["Technical"]}},
-    23: {"question": "You enjoy roles where you can:", "options": {"A": ["Leadership"], "B": ["Admin"], "C": ["Creative"], "D": ["Technical"]}},
-    24: {"question": "In a class discussion, you usually:", "options": {"A": ["Specialist"], "B": ["Leadership"], "C": ["Creative"], "D": ["Admin"]}},
-    25: {"question": "What’s most important in your future job?", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    26: {"question": "If given ₹10,000 today, you would:", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    27: {"question": "Which quote do you relate to most?", "options": {"A": ["Creative"], "B": ["Humanities"], "C": ["STEM"], "D": ["Business"]}},
-    28: {"question": "Your dream project would involve:", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    29: {"question": "How do you make big decisions?", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
-    30: {"question": "Ten years from now, you want to be:", "options": {"A": ["STEM"], "B": ["Humanities"], "C": ["Creative"], "D": ["Business"]}},
+# Personality Types
+    1: {""question"": ""How do you behave in new social situations?"", ""options"": {
+        ""I observe quietly"": [""Introvert""],
+        ""I talk to a few people"": [""Ambivert""],
+        ""I mingle with everyone"": [""Extrovert""],
+        ""I wait for someone to talk to me"": [""Reserved""]}},
+    2: {""question"": ""What describes you best at school?"", ""options"": {
+        ""Organised and timely"": [""Structured""],
+        ""Casual but meet deadlines"": [""Balanced""],
+        ""I work last minute"": [""Spontaneous""],
+        ""I need help to manage work"": [""Dependent""]}},
+    3: {""question"": ""Your desk at home is usually:"", ""options"": {
+        ""Neat and organised"": [""Structured""],
+        ""A little messy but I know where things are"": [""Balanced""],
+        ""Super messy"": [""Spontaneous""],
+        ""Varies depending on mood"": [""Dependent""]}},
+    4: {""question"": ""How do you deal with unexpected tasks?"", ""options"": {
+        ""Make a plan first"": [""Structured""],
+        ""Jump into it"": [""Spontaneous""],
+        ""Ask for help"": [""Dependent""],
+        ""Balance between planning and action"": [""Balanced""]}},
+    5: {""question"": ""Your friends describe you as:"", ""options"": {
+        ""Quiet and thoughtful"": [""Introvert""],
+        ""Friendly and outgoing"": [""Extrovert""],
+        ""Balanced"": [""Ambivert""],
+        ""Only open with close friends"": [""Reserved""]}},
+    6: {""question"": ""When given choices, you:"", ""options"": {
+        ""Weigh all pros and cons"": [""Structured""],
+        ""Go with what feels right"": [""Spontaneous""],
+        ""Get overwhelmed sometimes"": [""Dependent""],
+        ""Mix logic with instinct"": [""Balanced""]}},
+    7: {""question"": ""How do you plan your day?"", ""options"": {
+        ""Create a checklist"": [""Structured""],
+        ""Have a rough idea only"": [""Spontaneous""],
+        ""Don’t plan – go with the flow"": [""Dependent""],
+        ""Some parts planned, some flexible"": [""Balanced""]}},
+    8: {""question"": ""You feel most productive when:"", ""options"": {
+        ""You have a fixed routine"": [""Structured""],
+        ""You’re doing something exciting"": [""Spontaneous""],
+        ""You have someone guiding you"": [""Dependent""],
+        ""You have space to adapt"": [""Balanced""]}},
+    9: {""question"": ""You prefer to work:"", ""options"": {
+        ""Alone and focused"": [""Introvert""],
+        ""In groups and discussions"": [""Extrovert""],
+        ""Based on the task"": [""Ambivert""],
+        ""Quietly with close peers"": [""Reserved""]}},
+    10: {""question"": ""When making choices, you rely on:"", ""options"": {
+        ""Facts and logic"": [""Structured""],
+        ""Gut feeling"": [""Spontaneous""],
+        ""Guidance from others"": [""Dependent""],
+        ""A mix of both"": [""Balanced""]}},
+
+    # Learning Style Types
+    11: {""question"": ""How do you best learn something new?"", ""options"": {
+        ""By watching or seeing"": [""Visual Learner""],
+        ""By doing or experiencing"": [""Kinesthetic Learner""],
+        ""By listening"": [""Auditory Learner""],
+        ""By reading"": [""Reading/Writing Learner""]}},
+    12: {""question"": ""How do you remember a concept best?"", ""options"": {
+        ""By making mind maps"": [""Visual Learner""],
+        ""By teaching someone else"": [""Kinesthetic Learner""],
+        ""By repeating it aloud"": [""Auditory Learner""],
+        ""By taking notes"": [""Reading/Writing Learner""]}},
+    13: {""question"": ""You understand better when:"", ""options"": {
+        ""You draw it out"": [""Visual Learner""],
+        ""You try it yourself"": [""Kinesthetic Learner""],
+        ""You hear it explained"": [""Auditory Learner""],
+        ""You read examples"": [""Reading/Writing Learner""]}},
+    14: {""question"": ""You revise best by:"", ""options"": {
+        ""Making diagrams"": [""Visual Learner""],
+        ""Practicing tasks"": [""Kinesthetic Learner""],
+        ""Listening to recordings"": [""Auditory Learner""],
+        ""Writing summaries"": [""Reading/Writing Learner""]}},
+    15: {""question"": ""You enjoy teachers who:"", ""options"": {
+        ""Use visuals"": [""Visual Learner""],
+        ""Make you do activities"": [""Kinesthetic Learner""],
+        ""Explain out loud"": [""Auditory Learner""],
+        ""Give notes and readings"": [""Reading/Writing Learner""]}},
+    16: {""question"": ""To recall something, you usually:"", ""options"": {
+        ""Picture it in your mind"": [""Visual Learner""],
+        ""Act it out or simulate"": [""Kinesthetic Learner""],
+        ""Say it aloud"": [""Auditory Learner""],
+        ""Write it down repeatedly"": [""Reading/Writing Learner""]}},
+    17: {""question"": ""What type of homework feels easiest?"", ""options"": {
+        ""Drawing or mapping concepts"": [""Visual Learner""],
+        ""Building or hands-on work"": [""Kinesthetic Learner""],
+        ""Oral presentation"": [""Auditory Learner""],
+        ""Essays or reports"": [""Reading/Writing Learner""]}},
+    18: {""question"": ""You enjoy content in the form of:"", ""options"": {
+        ""Videos and diagrams"": [""Visual Learner""],
+        ""Interactive games"": [""Kinesthetic Learner""],
+        ""Podcasts or lectures"": [""Auditory Learner""],
+        ""Articles and books"": [""Reading/Writing Learner""]}},
+    19: {""question"": ""You prefer revision that involves:"", ""options"": {
+        ""Charts or mind maps"": [""Visual Learner""],
+        ""Model making or practice"": [""Kinesthetic Learner""],
+        ""Audio summaries"": [""Auditory Learner""],
+        ""Written notes"": [""Reading/Writing Learner""]}},
+    20: {""question"": ""Which best describes how you study?"", ""options"": {
+        ""I use color-coded notes"": [""Visual Learner""],
+        ""I do sample exercises"": [""Kinesthetic Learner""],
+        ""I listen to myself/others"": [""Auditory Learner""],
+        ""I reread material often"": [""Reading/Writing Learner""]}},
+
+        # Behaviour Types (Q21–30)
+    21: {""question"": ""In group projects, you usually:"", ""options"": {
+        ""Take charge and lead"": [""Leader""],
+        ""Do what you are assigned"": [""Executor""],
+        ""Give ideas and feedback"": [""Thinker""],
+        ""Help where needed"": [""Supporter""]}},
+    22: {""question"": ""You prefer instructions that are:"", ""options"": {
+        ""Clear and step-by-step"": [""Executor""],
+        ""Flexible with creativity"": [""Thinker""],
+        ""Simple and quick"": [""Supporter""],
+        ""Complete with big picture"": [""Leader""]}},
+    23: {""question"": ""In school events, you mostly:"", ""options"": {
+        ""Manage or coordinate"": [""Leader""],
+        ""Host or perform"": [""Thinker""],
+        ""Do behind-the-scenes work"": [""Executor""],
+        ""Assist friends or groups"": [""Supporter""]}},
+    24: {""question"": ""Your decision-making style is:"", ""options"": {
+        ""Quick and confident"": [""Leader""],
+        ""Balanced and open"": [""Thinker""],
+        ""Based on given rules"": [""Executor""],
+        ""With input from others"": [""Supporter""]}},
+    25: {""question"": ""Your classmates rely on you for:"", ""options"": {
+        ""Leadership"": [""Leader""],
+        ""Creative ideas"": [""Thinker""],
+        ""Execution and details"": [""Executor""],
+        ""Team spirit"": [""Supporter""]}},
+    26: {""question"": ""During competitions, you are:"", ""options"": {
+        ""Focused and goal-oriented"": [""Executor""],
+        ""Cheerful and motivating"": [""Supporter""],
+        ""Strategic and planning"": [""Leader""],
+        ""Innovative and fun"": [""Thinker""]}},
+    27: {""question"": ""When there's a problem, you:"", ""options"": {
+        ""Try new ways to solve"": [""Thinker""],
+        ""Get help from a group"": [""Supporter""],
+        ""Take control to fix it"": [""Leader""],
+        ""Follow a known process"": [""Executor""]}},
+    28: {""question"": ""You feel most valued when:"", ""options"": {
+        ""You lead a task"": [""Leader""],
+        ""You give good suggestions"": [""Thinker""],
+        ""You do something well"": [""Executor""],
+        ""You help someone succeed"": [""Supporter""]}},
+    29: {""question"": ""At school you often:"", ""options"": {
+        ""Organise peers"": [""Leader""],
+        ""Give ideas in class"": [""Thinker""],
+        ""Do assignments carefully"": [""Executor""],
+        ""Assist friends often"": [""Supporter""]}},
+    30: {""question"": ""If your friend needs help in a project:"", ""options"": {
+        ""You take charge for them"": [""Leader""],
+        ""You brainstorm ideas"": [""Thinker""],
+        ""You complete parts for them"": [""Executor""],
+        ""You guide and cheer them"": [""Supporter""]}},
+
+        # Emotional Types (Q31–40)
+    31: {""question"": ""When you feel anxious, you:"", ""options"": {
+        ""Talk it out"": [""Expressive""],
+        ""Keep it to yourself"": [""Internaliser""],
+        ""Get irritated"": [""Reactive""],
+        ""Distract yourself"": [""Avoidant""]}},
+    32: {""question"": ""When you get bad marks:"", ""options"": {
+        ""You feel down for a while"": [""Internaliser""],
+        ""You talk to someone"": [""Expressive""],
+        ""You blame the paper/system"": [""Reactive""],
+        ""You ignore and move on"": [""Avoidant""]}},
+    33: {""question"": ""How do you react to criticism?"", ""options"": {
+        ""Think quietly and change"": [""Internaliser""],
+        ""Defend immediately"": [""Reactive""],
+        ""Laugh or joke about it"": [""Avoidant""],
+        ""Talk about it later"": [""Expressive""]}},
+    34: {""question"": ""When you’re angry:"", ""options"": {
+        ""You raise your voice"": [""Reactive""],
+        ""You cry or become silent"": [""Internaliser""],
+        ""You walk away"": [""Avoidant""],
+        ""You tell someone why"": [""Expressive""]}},
+    35: {""question"": ""When something great happens:"", ""options"": {
+        ""You share it with everyone"": [""Expressive""],
+        ""You smile to yourself"": [""Internaliser""],
+        ""You act like it's no big deal"": [""Avoidant""],
+        ""You celebrate loudly"": [""Reactive""]}},
+    36: {""question"": ""How do you handle pressure?"", ""options"": {
+        ""Vent or share emotions"": [""Expressive""],
+        ""Overthink silently"": [""Internaliser""],
+        ""Get angry or short-tempered"": [""Reactive""],
+        ""Escape into games/music"": [""Avoidant""]}},
+    37: {""question"": ""When people are upset with you:"", ""options"": {
+        ""You cry or worry"": [""Internaliser""],
+        ""You fight back"": [""Reactive""],
+        ""You laugh it off"": [""Avoidant""],
+        ""You try to talk it through"": [""Expressive""]}},
+    38: {""question"": ""What do you do when you're sad?"", ""options"": {
+        ""Write or talk"": [""Expressive""],
+        ""Stay quiet and hide it"": [""Internaliser""],
+        ""Complain or shout"": [""Reactive""],
+        ""Watch movies/play games"": [""Avoidant""]}},
+    39: {""question"": ""When nervous before exams:"", ""options"": {
+        ""You talk to a parent or friend"": [""Expressive""],
+        ""You worry silently"": [""Internaliser""],
+        ""You get annoyed or restless"": [""Reactive""],
+        ""You distract yourself"": [""Avoidant""]}},
+    40: {""question"": ""How do you deal with failure?"", ""options"": {
+        ""Open up to someone"": [""Expressive""],
+        ""Keep emotions to yourself"": [""Internaliser""],
+        ""Blame others or get angry"": [""Reactive""],
+        ""Avoid thinking about it"": [""Avoidant""]}},
+
+        # Interest Types (Q41–50)
+    41: {""question"": ""In your free time, you prefer:"", ""options"": {
+        ""Building something or solving problems"": [""STEM""],
+        ""Writing, drawing, or performing"": [""Creative""],
+        ""Learning about people or society"": [""Humanities""],
+        ""Trading or money-related tasks"": [""Business""]}},
+    42: {""question"": ""You are most excited by:"", ""options"": {
+        ""New technology and inventions"": [""STEM""],
+        ""Beautiful designs and stories"": [""Creative""],
+        ""Ideas that change society"": [""Humanities""],
+        ""Business plans and brands"": [""Business""]}},
+    43: {""question"": ""Your ideal class activity would be:"", ""options"": {
+        ""Science experiment or coding challenge"": [""STEM""],
+        ""Drama or visual art"": [""Creative""],
+        ""Debate or survey"": [""Humanities""],
+        ""Case study or role play business"": [""Business""]}},
+    44: {""question"": ""When choosing a documentary, you’d pick:"", ""options"": {
+        ""About space, physics or AI"": [""STEM""],
+        ""About filmmakers, artists or musicians"": [""Creative""],
+        ""About history or society"": [""Humanities""],
+        ""About companies or finance"": [""Business""]}},
+    45: {""question"": ""You enjoy magazines or videos about:"", ""options"": {
+        ""Science and discovery"": [""STEM""],
+        ""Movies and storytelling"": [""Creative""],
+        ""World events and change-makers"": [""Humanities""],
+        ""Startups and money"": [""Business""]}},
+    46: {""question"": ""Your favourite school event is:"", ""options"": {
+        ""Tech fair or quiz"": [""STEM""],
+        ""Art or music fest"": [""Creative""],
+        ""MUN or elocution"": [""Humanities""],
+        ""Business bazaar"": [""Business""]}},
+    47: {""question"": ""What kind of club would you join?"", ""options"": {
+        ""Coding or Robotics"": [""STEM""],
+        ""Theatre or Design"": [""Creative""],
+        ""Debating or Social Work"": [""Humanities""],
+        ""Entrepreneurship or Commerce"": [""Business""]}},
+    48: {""question"": ""What excites you about the future?"", ""options"": {
+        ""Tech innovation"": [""STEM""],
+        ""Creative freedom"": [""Creative""],
+        ""Changing the world"": [""Humanities""],
+        ""Owning a company"": [""Business""]}},
+    49: {""question"": ""Which subject feels most natural to you?"", ""options"": {
+        ""Math or Science"": [""STEM""],
+        ""English or Art"": [""Creative""],
+        ""Social Science"": [""Humanities""],
+        ""Economics or Accounts"": [""Business""]}},
+    50: {""question"": ""Which of these do you admire most?"", ""options"": {
+        ""Engineers or Scientists"": [""STEM""],
+        ""Authors or Designers"": [""Creative""],
+        ""Activists or Leaders"": [""Humanities""],
+        ""CEOs or Investors"": [""Business""]}},
+
+    # Aptitude Types (Q51–60)
+    51: {""question"": ""You are best at solving:"", ""options"": {
+        ""Logic puzzles"": [""Logical""],
+        ""Creative challenges"": [""Creative""],
+        ""Word games"": [""Verbal""],
+        ""Number patterns"": [""Numerical""]}},
+    52: {""question"": ""Your strongest subject area is:"", ""options"": {
+        ""Physics, Math"": [""Logical""],
+        ""Drawing, Art"": [""Creative""],
+        ""English, Literature"": [""Verbal""],
+        ""Accounts, Data"": [""Numerical""]}},
+    53: {""question"": ""You enjoy assignments that involve:"", ""options"": {
+        ""Formulas and reasoning"": [""Logical""],
+        ""Visuals and imagination"": [""Creative""],
+        ""Writing and vocabulary"": [""Verbal""],
+        ""Graphs and calculation"": [""Numerical""]}},
+    54: {""question"": ""In puzzles or games, you prefer:"", ""options"": {
+        ""Sudoku or logic grid"": [""Logical""],
+        ""Pictionary or design challenge"": [""Creative""],
+        ""Crosswords or anagrams"": [""Verbal""],
+        ""Math riddles"": [""Numerical""]}},
+    55: {""question"": ""When thinking fast, your brain picks:"", ""options"": {
+        ""Facts and cause-effect"": [""Logical""],
+        ""Images and colours"": [""Creative""],
+        ""Words and sentences"": [""Verbal""],
+        ""Quantities and patterns"": [""Numerical""]}},
+    56: {""question"": ""Your friends say you are good at:"", ""options"": {
+        ""Solving tough problems"": [""Logical""],
+        ""Making things beautiful"": [""Creative""],
+        ""Explaining things well"": [""Verbal""],
+        ""Handling budgets or scores"": [""Numerical""]}},
+    57: {""question"": ""You find it easy to:"", ""options"": {
+        ""Understand scientific logic"": [""Logical""],
+        ""Create something original"": [""Creative""],
+        ""Learn new words"": [""Verbal""],
+        ""Work with percentages"": [""Numerical""]}},
+    58: {""question"": ""You like tasks that involve:"", ""options"": {
+        ""Cause-effect analysis"": [""Logical""],
+        ""Drawing/sketching"": [""Creative""],
+        ""Reading or storytelling"": [""Verbal""],
+        ""Tabulation or computation"": [""Numerical""]}},
+    59: {""question"": ""You struggle the least with:"", ""options"": {
+        ""Reasoning questions"": [""Logical""],
+        ""Art/design prompts"": [""Creative""],
+        ""Essay writing"": [""Verbal""],
+        ""Math or data tables"": [""Numerical""]}},
+    60: {""question"": ""Which activity feels most rewarding?"", ""options"": {
+        ""Solving a complex problem"": [""Logical""],
+        ""Finishing a creative project"": [""Creative""],
+        ""Delivering a speech/story"": [""Verbal""],
+        ""Balancing or budgeting"": [""Numerical""]}}
 }
 
-responses = {}
-st.header("Section 1: Psychometric Questions")
-for q_no, q_data in questions.items():
-    responses[q_no] = st.radio(q_data["question"], list(q_data["options"].keys()), key=f"q{q_no}")
+weights = {
+    ""Personality"": 1.0,
+    ""Learning Style"": 0.9,
+    ""Behaviour"": 0.8,
+    ""Emotional"": 0.8,
+    ""Interest"": 1.0,
+    ""Aptitude"": 1.2
+}
 
-st.header("Section 2: Academic Scores (Last 2 Years)")
-academic_scores = st.data_editor(pd.DataFrame({
-    "Subject": ["Math", "Science", "English", "Social Studies", "Second Language", "Computer", "Business Studies"],
-    "Class 9 (%)": [None]*7,
-    "Class 10 (%)": [None]*7,
-}))
+dimension_map = {
+    ""Personality"": list(range(1, 11)),
+    ""Learning Style"": list(range(11, 21)),
+    ""Behaviour"": list(range(21, 31)),
+    ""Emotional"": list(range(31, 41)),
+    ""Interest"": list(range(41, 51)),
+    ""Aptitude"": list(range(51, 61))
+}
 
-if st.button("Generate Report"):
-    if student_name and all(responses.values()):
-        scores = calculate_scores(responses, questions)
-        pdf_path = generate_pdf_report(scores, academic_scores, student_name)
-        with open(pdf_path, "rb") as f:
-            st.download_button("Download Your Career Report", f, file_name=os.path.basename(pdf_path), mime="application/pdf")
-    else:
-        st.warning("Please fill out your name and answer all questions.")
+career_domains = {
+    ""STEM"": [""Engineer"", ""Data Analyst"", ""AI Researcher"", ""Biotech Scientist""],
+    ""Creative"": [""UX Designer"", ""Animator"", ""Content Creator"", ""Filmmaker""],
+    ""Social"": [""Psychologist"", ""Policy Researcher"", ""Teacher"", ""NGO Worker""],
+    ""Business"": [""Entrepreneur"", ""Marketing Analyst"", ""Financial Consultant""]
+}
+
+university_domains = {
+    ""STEM"": [""MIT"", ""Stanford"", ""ETH Zurich"", ""IIT Bombay""],
+    ""Creative"": [""Parsons School of Design"", ""NID India"", ""SCAD"", ""RMIT""],
+    ""Social"": [""Sciences Po"", ""TISS"", ""LSE"", ""UCLA""],
+    ""Business"": [""Wharton"", ""INSEAD"", ""London Business School"", ""IIM Ahmedabad""]
+}
+
+def calculate_scores(responses):
+    scores_by_dim = {}
+    for dim, q_ids in dimension_map.items():
+        dim_scores = {}
+        for q_id in q_ids:
+            selected = responses.get(q_id)
+            if selected:
+                tags = questions[q_id]['options'].get(selected, [])
+                for tag in tags:
+                    dim_scores[tag] = dim_scores.get(tag, 0) + weights[dim]
+        scores_by_dim[dim] = dim_scores
+    return scores_by_dim
+
+def recommend_domain(scores_by_dim):
+    summary = {}
+    interests = scores_by_dim.get(""Interest"", {})
+    top_interest = max(interests, key=interests.get) if interests else ""General""
+    if top_interest in career_domains:
+        summary[""Careers""] = career_domains[top_interest]
+        summary[""Universities""] = university_domains[top_interest]
+    return summary
+
+def get_subject_analysis(subject_scores):
+    strengths = [subj for subj, score in subject_scores.items() if score >= 85]
+    weaknesses = [subj for subj, score in subject_scores.items() if score <= 60]
+    return strengths, weaknesses
+
+def suggest_majors(strengths):
+    mapping = {
+        ""Math"": [""Engineering"", ""Computer Science"", ""Economics""],
+        ""Physics"": [""Engineering"", ""Astrophysics""],
+        ""Chemistry"": [""Pharmacy"", ""Chemical Engineering""],
+        ""Biology"": [""Medicine"", ""Biotech""],
+        ""English"": [""Journalism"", ""Literature""],
+        ""History"": [""Public Policy"", ""Law""],
+        ""Geography"": [""Environmental Studies"", ""Urban Planning""],
+        ""Economics"": [""Finance"", ""Data Science""]
+    }
+    suggested = []
+    for subj in strengths:
+        suggested.extend(mapping.get(subj, []))
+    return list(set(suggested))
+
+def generate_split_radar_charts(scores_by_dim):
+    charts = {}
+    for dimension, scores in scores_by_dim.items():
+        if not scores:
+            continue
+
+        labels = list(scores.keys())
+        values = list(scores.values())
+        angles = np.linspace(0, 2 * np.pi, len(labels), endpoint=False).tolist()
+        values += values[:1]
+        angles += angles[:1]
+
+        fig, ax = plt.subplots(figsize=(7.5, 7.5), subplot_kw=dict(polar=True))
+        ax.plot(angles, values, 'o-', linewidth=2)
+        ax.fill(angles, values, alpha=0.25)
+        ax.set_yticklabels([])
+        ax.set_xticks(angles[:-1])
+        ax.set_xticklabels(labels, fontsize=9, wrap=True)
+        ax.set_title(dimension, fontsize=14)
+        fig.subplots_adjust(top=0.85, bottom=0.1)
+
+        tmpfile = tempfile.NamedTemporaryFile(delete=False, suffix="".png"")
+        plt.savefig(tmpfile.name, dpi=150)
+        charts[dimension] = tmpfile.name
+        plt.close(fig)
+    return charts
+
+def generate_summary(scores_by_dim):
+    summary = """"
+    for dim, score_map in scores_by_dim.items():
+        if score_map:
+            top_area = max(score_map, key=score_map.get)
+            summary += f""\n- {dim}: Dominant trait = {top_area}""
+    return summary
+
+def generate_pdf(student_name, scores_by_dim, chart_paths, recommendations):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font(""Arial"", size=12)
+    pdf.cell(200, 10, txt=f""Career Report: {student_name}"", ln=True, align='C')
+    pdf.ln(5)
+    pdf.multi_cell(0, 10, txt=""Your psychometric analysis across 6 core dimensions shows the following dominant traits:"")
+    summary = generate_summary(scores_by_dim)
+    for line in summary.strip().split('\n'):
+        pdf.multi_cell(0, 8, txt=line)
+
+    pdf.add_page()
+    pdf.set_font(""Arial"", 'B', 14)
+    pdf.cell(0, 10, ""Suggested Career Tracks & Universities"", ln=True, align='C')
+    pdf.set_font(""Arial"", size=12)
+    for section, items in recommendations.items():
+        pdf.multi_cell(0, 8, f""\n{section} Suggestions:"")
+        for item in items:
+            pdf.multi_cell(0, 8, f""- {item}"")
+
+    for dim in dimension_map.keys():
+        if dim in chart_paths:
+            pdf.add_page()
+            pdf.set_font(""Arial"", 'B', 14)
+            pdf.cell(0, 10, f""{dim} Profile"", ln=True, align='C')
+            pdf.image(chart_paths[dim], x=30, y=30, w=150)
+
+    output_buffer = BytesIO()
+    pdf_output = pdf.output(dest='S').encode('latin1')
+    output_buffer.write(pdf_output)
+    output_buffer.seek(0)
+    return output_buffer
+
+# UI logic and navigation will be handled after this section
+
+if 'responses' not in st.session_state:
+    st.session_state.responses = {}
+if 'page' not in st.session_state:
+    st.session_state.page = 0
+
+responses = st.session_state.responses
+pages = [(dim, dimension_map[dim]) for dim in dimension_map]
+
+if st.session_state.page < len(pages):
+    dim_name, q_ids = pages[st.session_state.page]
+    st.header(f""{dim_name} Questions"")
+    incomplete = False
+
+    for q_id in q_ids:
+        q_data = questions.get(q_id)
+        if q_data:
+            options = list(q_data[""options""].keys())
+            current_val = responses.get(q_id)
+            selected = st.radio(
+                f""Q{q_id}. {q_data['question']}"",
+                options,
+                index=options.index(current_val) if current_val in options else None,
+                key=f""q_{q_id}""
+            )
+            if not selected:
+                incomplete = True
+            responses[q_id] = selected if selected else None
+
+    if st.button(""Next""):
+        if any(responses.get(q_id) is None for q_id in q_ids):
+            st.warning(""Please answer all questions before proceeding."")
+        else:
+            st.session_state.page += 1
+            st.rerun()
+
+    if st.button(""Back"") and st.session_state.page > 0:
+        st.session_state.page -= 1
+        st.rerun()
+
+    if st.button(""Reset""):
+        st.session_state.responses = {}
+        st.session_state.page = 0
+        st.rerun()
+
+else:
+    st.header(""🎯 Review Your Dominant Traits"")
+    name = st.text_input(""Enter your name for the report:"")
+    subject_scores = {}
+    with st.expander(""📘 Enter your Class 9 & 10 Subject Scores""):
+        for subj in [""Math"", ""Physics"", ""Chemistry"", ""Biology"", ""English"", ""History"", ""Geography"", ""Economics""]:
+            subject_scores[subj] = st.number_input(f""{subj} Marks (%)"", min_value=0, max_value=100, value=75)
+
+    if st.button(""Generate Report"") and name:
+        scores = calculate_scores(responses)
+        charts = generate_split_radar_charts(scores)
+        strengths, _ = get_subject_analysis(subject_scores)
+        majors = suggest_majors(strengths)
+        recommendations = recommend_domain(scores)
+        if majors:
+            recommendations[""Suggested Majors""] = majors
+        pdf_bytes = generate_pdf(name, scores, charts, recommendations)
+        st.success(""Report Generated Successfully!"")
+        st.download_button(""📄 Download Career Report"", data=pdf_bytes, file_name=""Career_Report.pdf"", mime=""application/pdf"")
+
+    if st.button(""Start Over""):
+        st.session_state.page = 0
+        st.session_state.responses = {}
+        st.rerun()"

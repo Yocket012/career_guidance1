@@ -2,3 +2,5 @@ streamlit
 pandas
 reportlap
 fpdf
+numpy
+matplotlib
